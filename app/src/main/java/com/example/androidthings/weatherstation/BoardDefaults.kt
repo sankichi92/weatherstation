@@ -23,12 +23,20 @@ object BoardDefaults {
     private const val DEVICE_IMX6UL_PICO = "imx6ul_pico"
     private const val DEVICE_IMX7D_PICO = "imx7d_pico"
 
-    val buttonGpioPin: String
+    val aButtonGpioPin: String
         get() {
             return when (Build.DEVICE) {
                 DEVICE_RPI3 -> "BCM21"
                 DEVICE_IMX6UL_PICO -> "GPIO2_IO03"
                 DEVICE_IMX7D_PICO -> "GPIO6_IO14"
+                else -> throw IllegalArgumentException("Unknown device: " + Build.DEVICE)
+            }
+        }
+
+    val bButtonGpioPin: String
+        get() {
+            return when (Build.DEVICE) {
+                DEVICE_IMX7D_PICO -> "GPIO6_IO15"
                 else -> throw IllegalArgumentException("Unknown device: " + Build.DEVICE)
             }
         }

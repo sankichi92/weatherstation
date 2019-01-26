@@ -32,7 +32,6 @@ import android.os.Message
 import android.util.Log
 import android.view.KeyEvent
 import android.view.animation.LinearInterpolator
-
 import com.google.android.things.contrib.driver.apa102.Apa102
 import com.google.android.things.contrib.driver.bmx280.Bmx280SensorDriver
 import com.google.android.things.contrib.driver.button.Button
@@ -42,14 +41,14 @@ import com.google.android.things.contrib.driver.pwmspeaker.Speaker
 import com.google.android.things.pio.Gpio
 import com.google.android.things.pio.PeripheralManager
 import kotlinx.android.synthetic.main.activity_main.*
-
 import java.io.IOException
 
 class WeatherStationActivity : Activity() {
 
     private lateinit var mSensorManager: SensorManager
 
-    private lateinit var mButtonInputDriver: ButtonInputDriver
+    private lateinit var mAButtonInputDriver: ButtonInputDriver
+    private lateinit var mBButtonInputDriver: ButtonInputDriver
 
     private lateinit var mEnvironmentalSensorDriver: Bmx280SensorDriver
 
@@ -66,7 +65,7 @@ class WeatherStationActivity : Activity() {
     private var mLastTemperature = 0f
     private var mLastPressure = 0f
 
-    private var mPubsubPublisher: PubsubPublisher? = null
+    private lateinit var mPubsubPublisher: PubsubPublisher
 
     private lateinit var mHandler: Handler
 
@@ -76,15 +75,11 @@ class WeatherStationActivity : Activity() {
             if (sensor.type == Sensor.TYPE_AMBIENT_TEMPERATURE) {
                 // Our sensor is connected. Start receiving temperature data.
                 mSensorManager.registerListener(mTemperatureListener, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-                if (mPubsubPublisher != null) {
-                    mSensorManager.registerListener(mPubsubPublisher?.temperatureListener, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-                }
+                mSensorManager.registerListener(mPubsubPublisher.temperatureListener, sensor, SensorManager.SENSOR_DELAY_NORMAL)
             } else if (sensor.type == Sensor.TYPE_PRESSURE) {
                 // Our sensor is connected. Start receiving pressure data.
                 mSensorManager.registerListener(mPressureListener, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-                if (mPubsubPublisher != null) {
-                    mSensorManager.registerListener(mPubsubPublisher?.pressureListener, sensor, SensorManager.SENSOR_DELAY_NORMAL)
-                }
+                mSensorManager.registerListener(mPubsubPublisher.pressureListener, sensor, SensorManager.SENSOR_DELAY_NORMAL)
             }
         }
 
@@ -159,9 +154,13 @@ class WeatherStationActivity : Activity() {
 
         // GPIO button that generates 'A' keypresses (handled by onKeyUp method)
         try {
-            mButtonInputDriver = ButtonInputDriver(BoardDefaults.buttonGpioPin, Button.LogicState.PRESSED_WHEN_LOW, KeyEvent.KEYCODE_A)
-            mButtonInputDriver.register()
+            mAButtonInputDriver = ButtonInputDriver(BoardDefaults.aButtonGpioPin, Button.LogicState.PRESSED_WHEN_LOW, KeyEvent.KEYCODE_A)
+            mAButtonInputDriver.register()
             Log.d(TAG, "Initialized GPIO Button that generates a keypress with KEYCODE_A")
+
+            mBButtonInputDriver = ButtonInputDriver(BoardDefaults.bButtonGpioPin, Button.LogicState.PRESSED_WHEN_LOW, KeyEvent.KEYCODE_B)
+            mBButtonInputDriver.register()
+            Log.d(TAG, "Initialized GPIO Button that generates a keypress with KEYCODE_B")
         } catch (e: IOException) {
             throw RuntimeException("Error initializing GPIO button", e)
         }
@@ -248,47 +247,49 @@ class WeatherStationActivity : Activity() {
             throw RuntimeException("Error initializing speaker", e)
         }
 
-        // start Cloud PubSub Publisher if cloud credentials are present.
-        val credentialId = resources.getIdentifier("credentials", "raw", packageName)
-        if (credentialId != 0) {
-            try {
-                mPubsubPublisher = PubsubPublisher(this, "weatherstation", BuildConfig.PROJECT_ID, BuildConfig.PUBSUB_TOPIC, credentialId)
-                mPubsubPublisher?.start()
-            } catch (e: IOException) {
-                Log.e(TAG, "error creating pubsub publisher", e)
-            }
-
-        }
+        mPubsubPublisher = PubsubPublisher(filesDir.path)
+        mPubsubPublisher.start()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_A) {
-            mDisplayMode = DisplayMode.TEMPERATURE
-            updateDisplay(mLastTemperature)
-            try {
-                mLed.value = true
-            } catch (e: IOException) {
-                Log.e(TAG, "error updating LED", e)
+        return when (keyCode) {
+            KeyEvent.KEYCODE_A -> {
+                mDisplayMode = DisplayMode.TEMPERATURE
+                updateDisplay(mLastTemperature)
+                try {
+                    mLed.value = true
+                } catch (e: IOException) {
+                    Log.e(TAG, "error updating LED", e)
+                }
+                true
             }
-
-            return true
+            KeyEvent.KEYCODE_B -> {
+                mPubsubPublisher.publish()
+                mSpeaker.play(440.0)
+                true
+            }
+            else -> super.onKeyUp(keyCode, event)
         }
-        return super.onKeyUp(keyCode, event)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_A) {
-            mDisplayMode = DisplayMode.PRESSURE
-            updateDisplay(mLastPressure)
-            try {
-                mLed.value = false
-            } catch (e: IOException) {
-                Log.e(TAG, "error updating LED", e)
+        return when (keyCode) {
+            KeyEvent.KEYCODE_A -> {
+                mDisplayMode = DisplayMode.PRESSURE
+                updateDisplay(mLastPressure)
+                try {
+                    mLed.value = false
+                } catch (e: IOException) {
+                    Log.e(TAG, "error updating LED", e)
+                }
+                true
             }
-
-            return true
+            KeyEvent.KEYCODE_B -> {
+                mSpeaker.stop()
+                true
+            }
+            else -> super.onKeyUp(keyCode, event)
         }
-        return super.onKeyUp(keyCode, event)
     }
 
 
@@ -308,7 +309,8 @@ class WeatherStationActivity : Activity() {
         }
 
         try {
-            mButtonInputDriver.close()
+            mAButtonInputDriver.close()
+            mBButtonInputDriver.close()
         } catch (e: IOException) {
             e.printStackTrace()
         }
@@ -341,12 +343,9 @@ class WeatherStationActivity : Activity() {
         }
 
         // clean up Cloud PubSub publisher.
-        if (mPubsubPublisher != null) {
-            mSensorManager.unregisterListener(mPubsubPublisher?.temperatureListener)
-            mSensorManager.unregisterListener(mPubsubPublisher?.pressureListener)
-            mPubsubPublisher?.close()
-            mPubsubPublisher = null
-        }
+        mSensorManager.unregisterListener(mPubsubPublisher.temperatureListener)
+        mSensorManager.unregisterListener(mPubsubPublisher.pressureListener)
+        mPubsubPublisher.close()
     }
 
     private fun updateDisplay(value: Float) {
