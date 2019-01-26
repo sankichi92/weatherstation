@@ -58,7 +58,7 @@ class WeatherStationActivity : Activity() {
     private lateinit var mSpeaker: Speaker
 
     private var mDisplay: AlphanumericDisplay? = null
-    private var mDisplayMode = DisplayMode.TEMPERATURE
+    private var mDisplayMode = DisplayMode.PRESSURE
 
     private var mLedstrip: Apa102? = null
     private val mRainbow = IntArray(7)
@@ -263,8 +263,8 @@ class WeatherStationActivity : Activity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_A) {
-            mDisplayMode = DisplayMode.PRESSURE
-            updateDisplay(mLastPressure)
+            mDisplayMode = DisplayMode.TEMPERATURE
+            updateDisplay(mLastTemperature)
             try {
                 mLed.value = true
             } catch (e: IOException) {
@@ -278,8 +278,8 @@ class WeatherStationActivity : Activity() {
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_A) {
-            mDisplayMode = DisplayMode.TEMPERATURE
-            updateDisplay(mLastTemperature)
+            mDisplayMode = DisplayMode.PRESSURE
+            updateDisplay(mLastPressure)
             try {
                 mLed.value = false
             } catch (e: IOException) {
